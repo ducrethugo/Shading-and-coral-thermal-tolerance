@@ -1,0 +1,54 @@
+---
+title: "hobo_profiles"
+author: "Hugo"
+date: "2025-02-11"
+output: html_document
+---
+
+#Supplementary figures CBASS paper
+
+##Temp profiles
+
+```{r}
+setwd("E:/PhD_Organized/I. Science/B. Physiology and CBASS/3. CBASS/4. Temp-light profiles/HOBO_tank_profiles_CBASS")
+boing2 <- read.csv("LOG_CBASS_HL_AB.txt")
+head(boing2)
+boing2$Th <- as.numeric(as.character(boing2$Th))
+
+boing1 <- subset(boing2,boing2$Date =="2024_Feb_14" & boing2$Th > 11)
+boing1$time<-strptime(paste(boing1$Date,paste(boing1$Th,boing1$Tm,boing1$Ts,sep=":"),sep=" "),format="%Y_%B_%d %H:%M:%S", tz ="")
+
+class(boing1$Date)
+boing1 <- boing1[order(boing1$time),]
+boing1 <- subset(boing1, select=c(24,8,12,16,20))
+boing1$time <- as.POSIXct((as.numeric(as.character(boing1$time))))
+data_long <- reshape2::melt(boing1, id.vars="time", variable.name ="temperature_profile", value.name="temperature")
+
+# convert time column to POSIXct format
+#data$time <- as.POSIXct(data$time)
+
+# reshape data to long format
+#data_long <- reshape2::melt(data, id.vars="time", variable.name="temperature_profile", value.name="temperature")
+
+# plot temperature profiles against time
+data_long$temp <- as.numeric(data_long$temperature)
+library(ggplot2)
+data_long
+x=seq(1,22152)
+data_long_final <- cbind(data_long,x)
+t <- ggplot(data_long_final, aes(x=x, y=temp, col=temperature_profile)) + geom_point(size=.01) + labs(x="Time", y="Temperature", title="Temperature Profiles") #+ theme_cowplot() 
+t
+# class(data_long$temperature[92])
+
+```
+
+##Light profiles HOBO
+```{r}
+boing3 <- read.csv("HOBO_CBASS_VL_all_tanks.csv", sep =";")
+head(boing3)
+boing4 <- boing3[boing3$X. > 100 & boing3$X. < 500,]
+Hobo_VL <- ggplot(boing4, aes(x=X., y=µmol_m2_s_ok, col=Tank_ID)) + geom_line(lty = 3,lwd = 1) + labs(x="Time", y="Light intensity (µmol/m²/s)", title="Light Profiles") + theme_bw() + scale_x_continuous(limits = c(100,496), breaks=c(100,232,365,496))
+Hobo_VL
+```
+
+

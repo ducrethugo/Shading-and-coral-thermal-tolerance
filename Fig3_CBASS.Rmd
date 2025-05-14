@@ -1,0 +1,710 @@
+---
+title: "CBASS"
+author: "Hugo"
+date: "2024-02-15"
+output: html_document
+---
+
+#Dependencies
+
+```{r setup, include=FALSE}
+
+library(tidyverse)
+library(ggplot2)
+library(ggsignif)
+library(lmerTest)
+library(emmeans)
+library(sjPlot)
+library(drc)
+library(Rmisc)
+library(viridis)
+library(ggplot2)
+library(RColorBrewer)
+library(cowplot)
+```
+
+#Files and variables
+
+```{r}
+setwd("E:/PhD_Organized/I. Science/B. Physiology and CBASS/3. CBASS/2. data_FvFm")
+#### Read in pam data ###
+
+data_raw <- read.csv("CBASS_long_data_final_ok.csv", sep =";")
+data_raw
+data <- subset(data_raw, day == "CBASS" & run == "AL")
+### Set correct factors etc. ####
+
+data$Treatment <- as.factor(data$Treatment)
+#data$Tank <- as.numeric(data$Tank) ## needs to be integer for DRC ##
+data$genotype <- as.factor(data$genotype)
+#data$tank <- as.factor(data$tank)
+#data$FvFm <- as.numeric(as.character(data$FvFm))
+
+
+```
+
+##Ambient light temperature stress assay ("AL")
+
+#DRC - Dosage response curves
+
+```{r}
+Treatment <- data$Treatment
+a <- ggplot(data, aes(y=FvFm, x = data$temperature, colour = Treatment)) + geom_point() + geom_smooth() + xlab("Max temperature") + ylab("Fv/Fm") +theme_cowplot(10) + theme(axis.text.y = element_text(size = 10)) + theme(axis.text.x = element_text(size = 10)) + scale_color_manual(values = c("goldenrod", "midnightblue"))
+a
+
+#### DRC (Dosage Response Curve) Fitting####
+## For a priori groups ##
+DRCpam = drm(FvFm ~ temperature, data = data, curveid = Treatment, fct = LL.3(names = c("Hill", "Max", "ED50")))
+
+summary(DRCpam)
+compParm(DRCpam, 'ED50')
+compParm(DRCpam, 'ED50', "-")
+
+plot(DRCpam)
+points(data$temperature, data$FvFm)
+abline(a=NULL, b=34.5)
+ED(DRCpam, c(50))[,1]
+
+### For each individual ###
+
+DRCpamindo = drm(FvFm ~ temperature, data = data, curveid = genotype,
+             fct = LL.3(names = c('hill', 'max', 'ed50')))
+summary(DRCpamindo)
+compParm(DRCpamindo, 'ed50')
+compParm(DRCpamindo, 'ed50', "-")
+plot(DRCpamindo)
+points(data$temperature, data$FvFm)
+ED(DRCpamindo, c(50))[,1]
+
+```
+
+
+#Fit to each treatment individually
+
+```{r}
+
+#### DRC-Control ####
+DRC_control = drm(FvFm ~ temperature, data = data[data$Treatment=="Control",],
+                fct = LL.3(names = c('hill', 'max', 'ed50')))
+summary(DRC_control)
+DRC_control$coefficients[3]
+ED(DRC_control, c(50))[,1]
+
+
+#### DRC-shade ####
+DRC_shade = drm(FvFm ~ temperature, data = data[data$Treatment=="Shade",],
+               fct = LL.3(names = c('hill', 'max', 'ed50')))
+summary(DRC_shade)
+DRC_shade$coefficients[3]
+
+#extract ED50
+CBASS_Bleach_coeff<-DRC_control$coefficients[5]
+# Eilat_CBASS_coeff<-Eilat_DRC$coefficients[6]
+
+```
+
+
+#Predict data for plotting
+
+```{r}
+
+CBASS_Bleach_preddata = data.frame(temp = seq(27,39, length.out = 100))
+CBASS_Bleach_pred = as.data.frame(predict(DRC_control, newdata = CBASS_Bleach_preddata, interval = 'confidence'))
+CBASS_Bleach_preddata = data.frame(CBASS_Bleach_preddata, fvfm = CBASS_Bleach_pred$Prediction, Lower = CBASS_Bleach_pred$Lower, Upper = CBASS_Bleach_pred$Upper)
+
+CBASS_Non_preddata = data.frame(temp = seq(27,39, length.out = 100))
+CBASS_Non_pred = as.data.frame(predict(DRC_shade, newdata = CBASS_Non_preddata, interval = 'confidence'))
+CBASS_Non_preddata = data.frame(CBASS_Non_preddata, fvfm = CBASS_Non_pred$Prediction, Lower = CBASS_Non_pred$Lower, Upper = CBASS_Non_pred$Upper)
+```
+
+
+#Plots
+
+```{r}
+
+levels(data$Treatment)
+
+### Test plot with groups ####
+
+CBASS_DRC_plot<- ggplot() +
+  geom_jitter(data = data, aes(x = temperature, y = FvFm, color = Treatment), alpha = 0.5, size = 0.8, width = 0.25) +
+  scale_x_continuous(limits=c(26,40), breaks=c(26,30,34,38)) +
+  scale_y_continuous(limits=c(-0.1, 0.7), breaks=c(0, 0.2, 0.4, 0.6)) +
+  
+  geom_line(data = CBASS_Bleach_preddata, aes(x = temp, y = fvfm), color = 'goldenrod', show.legend = FALSE) +
+  geom_ribbon(data = CBASS_Bleach_preddata, aes(x = temp, ymin=Lower, ymax=Upper), color = 'goldenrod', linetype=2, alpha = 0.2) +
+  geom_vline(xintercept = 35.28690, linetype="solid", color = "goldenrod", size=0.7)+
+  
+  geom_line(data = CBASS_Non_preddata, aes(x = temp, y = fvfm), color = 'midnightblue', show.legend = FALSE) +
+  geom_ribbon(data = CBASS_Non_preddata, aes(x = temp, ymin=Lower, ymax=Upper), color = 'midnightblue', linetype=2, alpha = 0.2) +
+  geom_vline(xintercept = 33.94443, linetype="solid", color = "midnightblue", size=0.7)+
+  
+  scale_color_manual(values=c('goldenrod','midnightblue')) +
+  ylab("Fv/Fm") +
+  xlab("Temperature (°C)") +
+  theme_half_open(10)
+
+CBASS_DRC_plot
+
+
+```
+
+##Low light temperature stress assay ("LL")
+
+```{r}
+
+data2 <- subset(data_raw, run == "LL" & day == "CBASS")
+### Set correct factors etc. ####
+
+data2$Treatment <- as.factor(data2$Treatment)
+#data2$Tank <- as.numeric(data2$Tank) ## needs to be integer for DRC ##
+data2$genotype <- as.factor(data2$genotype)
+#data2$tank <- as.factor(data2$tank)
+#data2$FvFm <- as.numeric(as.character(data2$FvFm))
+
+
+
+Treatment2 <- data2$Treatment
+a <- ggplot(data2, aes(y=FvFm, x = data2$temperature, colour = Treatment)) + geom_point() + geom_smooth() + xlab("Max temperature") + ylab("Fv/Fm") +theme_cowplot(10) + theme(axis.text.y = element_text(size = 10)) + theme(axis.text.x = element_text(size = 10)) + scale_color_manual(values = c("goldenrod", "midnightblue"))
+a
+
+#### DRC (Dosage Response Curve) Fitting####
+## For a priori groups ##
+DRCpam = drm(FvFm ~ temperature, data = data2, curveid = Treatment, fct = LL.3(names = c("Hill", "Max", "ED50")))
+
+summary(DRCpam)
+compParm(DRCpam, 'ED50')
+compParm(DRCpam, 'ED50', "-")
+
+plot(DRCpam)
+points(data2$temperature, data2$FvFm)
+ED(DRCpam, c(50))[,1]
+
+### For each individual ###
+
+DRCpamindo = drm(FvFm ~ temperature, data = data2, curveid = genotype,
+             fct = LL.3(names = c('hill', 'max', 'ed50')))
+summary(DRCpamindo)
+compParm(DRCpamindo, 'ed50')
+compParm(DRCpamindo, 'ed50', "-")
+plot(DRCpamindo)
+points(data2$temperature, data2$FvFm)
+ED(DRCpamindo, c(50))[,1]
+
+#### DRC-Control ####
+DRCpamBleach = drm(FvFm ~ temperature, data = data2[data2$Treatment=="Control",],
+                fct = LL.3(names = c('hill', 'max', 'ed50')))
+summary(DRCpamBleach)
+DRCpamBleach$coefficients[3]
+ED(DRCpamBleach, c(50))[,1]
+
+
+#### DRC-Shade ####
+DRCpamNon = drm(FvFm ~ temperature, data = data2[data2$Treatment=="Shade",],
+               fct = LL.3(names = c('hill', 'max', 'ed50')))
+summary(DRCpamNon)
+DRCpamNon$coefficients[3]
+
+#extract ED50
+CBASS_Bleach_coeff<-DRCpamBleach$coefficients[5]
+# Eilat_CBASS_coeff<-Eilat_DRC$coefficients[6]
+
+CBASS_Bleach_preddata = data.frame(temp = seq(27,39, length.out = 100))
+CBASS_Bleach_pred = as.data.frame(predict(DRCpamBleach, newdata = CBASS_Bleach_preddata, interval = 'confidence'))
+CBASS_Bleach_preddata = data.frame(CBASS_Bleach_preddata, fvfm = CBASS_Bleach_pred$Prediction, Lower = CBASS_Bleach_pred$Lower, Upper = CBASS_Bleach_pred$Upper)
+
+CBASS_Non_preddata = data.frame(temp = seq(27,39, length.out = 100))
+CBASS_Non_pred = as.data.frame(predict(DRCpamNon, newdata = CBASS_Non_preddata, interval = 'confidence'))
+CBASS_Non_preddata = data.frame(CBASS_Non_preddata, fvfm = CBASS_Non_pred$Prediction, Lower = CBASS_Non_pred$Lower, Upper = CBASS_Non_pred$Upper)
+
+levels(data2$Treatment)
+
+### Test plot with groups ####
+
+CBASS_DRC_plot2<- ggplot() +
+  geom_jitter(data = data2, aes(x = temperature, y = FvFm, color = Treatment), alpha = 0.5, size = 0.8, width = 0.25) +
+  scale_x_continuous(limits=c(26,40), breaks=c(26,30,34,38)) +
+  scale_y_continuous(limits=c(-0.1, 0.7), breaks=c(0, 0.2, 0.4, 0.6)) +
+  
+  geom_line(data = CBASS_Bleach_preddata, aes(x = temp, y = fvfm), color = 'goldenrod', show.legend = FALSE) +
+  geom_ribbon(data = CBASS_Bleach_preddata, aes(x = temp, ymin=Lower, ymax=Upper), color = 'goldenrod', linetype=2, alpha = 0.2) +
+  geom_vline(xintercept = 35.847047, linetype="solid", color = "goldenrod", size=0.7)+
+  
+  geom_line(data = CBASS_Non_preddata, aes(x = temp, y = fvfm), color = 'midnightblue', show.legend = FALSE) +
+  geom_ribbon(data = CBASS_Non_preddata, aes(x = temp, ymin=Lower, ymax=Upper), color = 'midnightblue', linetype=2, alpha = 0.2) +
+  geom_vline(xintercept = 35.720542, linetype="solid", color = "midnightblue", size=0.7)+
+  
+  scale_color_manual(values=c('goldenrod','midnightblue')) +
+  ylab("") +
+  xlab("Temperature (°C)") +
+  theme_half_open(10) + theme(axis.text.y = element_text(size = 0))
+
+CBASS_DRC_plot2
+
+legend <- get_legend(CBASS_DRC_plot)
+CBASS_DRC_plot = CBASS_DRC_plot + theme(legend.position = "none")
+CBASS_DRC_plot2 = CBASS_DRC_plot2 + theme(legend.position = "none")
+
+plot_grid(CBASS_DRC_plot, CBASS_DRC_plot2, legend, labels = c("AL", "LL"), nrow =1, rel_widths = c(3.4,3.4,1))
+
+```
+
+##Light stress assay ("VL")
+
+```{r}
+
+dataL <- subset(data_raw, run == "VL" & day == "CBASS")
+### Set correct factors etc. ####
+
+dataL$Treatment <- as.factor(dataL$Treatment)
+#data2$Tank <- as.numeric(data2$Tank) ## needs to be integer for DRC ##
+dataL$genotype <- as.factor(dataL$genotype)
+#data2$tank <- as.factor(data2$tank)
+#data2$FvFm <- as.numeric(as.character(data2$FvFm))
+
+
+
+TreatmentL <- dataL$Treatment
+a <- ggplot(dataL, aes(y=FvFm, x = dataL$light, colour = TreatmentL)) + geom_point() + geom_smooth() + xlab("Max Light") + ylab("Fv/Fm") +theme_cowplot(10) + theme(axis.text.y = element_text(size = 10)) + theme(axis.text.x = element_text(size = 10)) + scale_color_manual(values = c("goldenrod", "midnightblue"))
+a
+
+#### DRC (Dosage Response Curve) Fitting####
+## For a priori groups ##
+DRCpam = drm(FvFm ~ light, data = dataL, curveid = TreatmentL, fct = LL.3(names = c("Hill", "Max", "ED50")))
+
+summary(DRCpam)
+compParm(DRCpam, 'ED50')
+compParm(DRCpam, 'ED50', "-")
+
+plot(DRCpam)
+points(dataL$light, dataL$FvFm)
+ED(DRCpam, c(50))[,1]
+
+### For each individual ###
+
+DRCpamindo = drm(FvFm ~ light, data = dataL, curveid = genotype,
+             fct = LL.3(names = c('hill', 'max', 'ed50')))
+summary(DRCpamindo)
+compParm(DRCpamindo, 'ed50')
+compParm(DRCpamindo, 'ed50', "-")
+plot(DRCpamindo)
+points(dataL$light, dataL$FvFm)
+ED(DRCpamindo, c(50))[,1]
+
+#### DRC-Control ####
+DRCpamBleach = drm(FvFm ~ light, data = dataL[dataL$Treatment=="Control",],
+                fct = LL.3(names = c('hill', 'max', 'ed50')))
+summary(DRCpamBleach)
+DRCpamBleach$coefficients[3]
+ED(DRCpamBleach, c(50))[,1]
+
+
+#### DRC-Shade ####
+DRCpamNon = drm(FvFm ~ light, data = dataL[dataL$Treatment=="Shade",],
+               fct = LL.3(names = c('hill', 'max', 'ed50')))
+summary(DRCpamNon)
+DRCpamNon$coefficients[3]
+
+#extract ED50
+CBASS_Bleach_coeff<-DRCpamBleach$coefficients[5]
+# Eilat_CBASS_coeff<-Eilat_DRC$coefficients[6]
+
+CBASS_Bleach_preddata = data.frame(temp = seq(70,1800, length.out = 100))
+CBASS_Bleach_pred = as.data.frame(predict(DRCpamBleach, newdata = CBASS_Bleach_preddata, interval = 'confidence'))
+CBASS_Bleach_preddata = data.frame(CBASS_Bleach_preddata, fvfm = CBASS_Bleach_pred$Prediction, Lower = CBASS_Bleach_pred$Lower, Upper = CBASS_Bleach_pred$Upper)
+
+CBASS_Non_preddata = data.frame(temp = seq(70,1800, length.out = 100))
+CBASS_Non_pred = as.data.frame(predict(DRCpamNon, newdata = CBASS_Non_preddata, interval = 'confidence'))
+CBASS_Non_preddata = data.frame(CBASS_Non_preddata, fvfm = CBASS_Non_pred$Prediction, Lower = CBASS_Non_pred$Lower, Upper = CBASS_Non_pred$Upper)
+
+levels(dataL$Treatment)
+
+### Test plot with groups ####
+
+CBASS_DRC_plotL<- ggplot() +
+  geom_jitter(data = dataL, aes(x = light, y = FvFm, color = TreatmentL), alpha = 0.5, size = 0.8, width = 0.25) +
+  scale_x_continuous(limits=c(50,1850), breaks=c(100,600,1100,1600)) +
+  scale_y_continuous(limits=c(-0.1, 0.7), breaks=c(0, 0.2, 0.4, 0.6)) +
+  
+  geom_line(data = CBASS_Bleach_preddata, aes(x = temp, y = fvfm), color = 'goldenrod', show.legend = FALSE) +
+  geom_ribbon(data = CBASS_Bleach_preddata, aes(x = temp, ymin=Lower, ymax=Upper), color = 'goldenrod', linetype=2, alpha = 0.2) +
+  geom_vline(xintercept = 1381.889, linetype="solid", color = "goldenrod", size=0.7)+
+  
+  geom_line(data = CBASS_Non_preddata, aes(x = temp, y = fvfm), color = 'midnightblue', show.legend = FALSE) +
+  geom_ribbon(data = CBASS_Non_preddata, aes(x = temp, ymin=Lower, ymax=Upper), color = 'midnightblue', linetype=2, alpha = 0.2) +
+  geom_vline(xintercept = 1084.725, linetype="solid", color = "midnightblue", size=0.7)+
+  
+  scale_color_manual(values=c('goldenrod','midnightblue')) +
+  ylab("") +
+  xlab("Light intensity (µmol/m²/s)") +
+  theme_half_open(10) + theme(axis.text.y = element_text(size = 0))
+
+CBASS_DRC_plotL
+
+CBASS_DRC_plotL = CBASS_DRC_plotL + theme(legend.position = "none")
+
+plot_grid(CBASS_DRC_plot, CBASS_DRC_plot2, CBASS_DRC_plotL, nrow =1)
+
+```
+
+
+#Assay AL and LL together
+
+```{r}
+data3 <- subset(data_raw, day == "CBASS" & run != "VL")
+### Set correct factors etc. ####
+
+data3$Treatment <- as.factor(data3$Treatment)
+#data2$Tank <- as.numeric(data2$Tank) ## needs to be integer for DRC ##
+data3$genotype <- as.factor(data3$genotype)
+#data2$tank <- as.factor(data2$tank)
+#data2$FvFm <- as.numeric(as.character(data2$FvFm))
+
+
+Run <- as.factor(data3$env_run)
+Treatment3 <- data3$Treatment
+a <- ggplot(data3, aes(y=FvFm, x = data3$temperature, colour = Run)) + geom_point() + geom_smooth() + xlab("Max temperature") + ylab("Fv/Fm") +theme_cowplot(10) + theme(axis.text.y = element_text(size = 10)) + theme(axis.text.x = element_text(size = 10)) + scale_color_manual(values = c("goldenrod", "goldenrod4", "blue3", "midnightblue"))
+a
+
+#### DRC (Dosage Response Curve) Fitting####
+## For a priori groups ##
+DRCpam = drm(FvFm ~ temperature, data = data3, curveid = Run, fct = LL.3(names = c("Hill", "Max", "ED50")))
+
+summary(DRCpam)
+compParm(DRCpam, 'ED50')
+compParm(DRCpam, 'ED50', "-")
+
+
+plot(DRCpam)
+points(data3$temperature, data3$FvFm)
+ED(DRCpam, c(50))[,1]
+
+### For each individual ###
+
+DRCpamindo = drm(FvFm ~ temperature, data = data3, curveid = genotype,
+             fct = LL.3(names = c('hill', 'max', 'ed50')))
+summary(DRCpamindo)
+compParm(DRCpamindo, 'ed50')
+compParm(DRCpamindo, 'ed50', "-")
+plot(DRCpamindo)
+points(data3$temperature, data3$FvFm)
+ED(DRCpamindo, c(50))[,1]
+
+#### 1 DRC-Control_AL ####
+DRCpam1 = drm(FvFm ~ temperature, data = data3[data3$env_run=="Control_AL",],
+                fct = LL.3(names = c('hill', 'max', 'ed50')))
+summary(DRCpam1)
+DRCpam1$coefficients[3]
+ED(DRCpam1, c(50))[,1]
+
+
+#### 2 DRC-Control_LL ####
+DRCpam2 = drm(FvFm ~ temperature, data = data3[data3$env_run=="Control_LL",],
+               fct = LL.3(names = c('hill', 'max', 'ed50')))
+summary(DRCpam2)
+DRCpam2$coefficients[3]
+
+#### 3 DRC-Shade_AL ####
+DRCpam3 = drm(FvFm ~ temperature, data = data3[data3$env_run=="Shade_AL",],
+                fct = LL.3(names = c('hill', 'max', 'ed50')))
+summary(DRCpam3)
+DRCpam3$coefficients[3]
+ED(DRCpam3, c(50))[,1]
+
+
+#### 4 DRC-Shade_LL ####
+DRCpam4 = drm(FvFm ~ temperature, data = data3[data3$env_run=="Shade_LL",],
+               fct = LL.3(names = c('hill', 'max', 'ed50')))
+summary(DRCpam4)
+DRCpam4$coefficients[3]
+
+#extract ED50
+CBASS_Bleach_coeff<-DRCpamBleach$coefficients[5]
+# Eilat_CBASS_coeff<-Eilat_DRC$coefficients[6]
+
+CBASS_1_preddata = data.frame(temp = seq(27,39, length.out = 100))
+CBASS_1_pred = as.data.frame(predict(DRCpam1, newdata = CBASS_1_preddata, interval = 'confidence'))
+CBASS_1_preddata = data.frame(CBASS_1_preddata, fvfm = CBASS_1_pred$Prediction, Lower = CBASS_1_pred$Lower, Upper = CBASS_1_pred$Upper)
+
+CBASS_2_preddata = data.frame(temp = seq(27,39, length.out = 100))
+CBASS_2_pred = as.data.frame(predict(DRCpam2, newdata = CBASS_2_preddata, interval = 'confidence'))
+CBASS_2_preddata = data.frame(CBASS_2_preddata, fvfm = CBASS_2_pred$Prediction, Lower = CBASS_2_pred$Lower, Upper = CBASS_2_pred$Upper)
+
+CBASS_3_preddata = data.frame(temp = seq(27,39, length.out = 100))
+CBASS_3_pred = as.data.frame(predict(DRCpam3, newdata = CBASS_3_preddata, interval = 'confidence'))
+CBASS_3_preddata = data.frame(CBASS_3_preddata, fvfm = CBASS_3_pred$Prediction, Lower = CBASS_3_pred$Lower, Upper = CBASS_3_pred$Upper)
+
+CBASS_4_preddata = data.frame(temp = seq(27,39, length.out = 100))
+CBASS_4_pred = as.data.frame(predict(DRCpam4, newdata = CBASS_4_preddata, interval = 'confidence'))
+CBASS_4_preddata = data.frame(CBASS_4_preddata, fvfm = CBASS_4_pred$Prediction, Lower = CBASS_4_pred$Lower, Upper = CBASS_4_pred$Upper)
+
+
+### Test plot with groups ####
+
+CBASS_DRC_plot3<- ggplot() +
+  geom_jitter(data = data3, aes(x = temperature, y = FvFm, color = Treatment, pch = run), size = 0.8, width = 0.25) +
+  scale_x_continuous(limits=c(26,40), breaks=c(26,30,34,38)) +
+  scale_y_continuous(limits=c(-0.1, 0.7), breaks=c(0, 0.2, 0.4, 0.6)) +
+  
+  geom_line(data = CBASS_1_preddata, aes(x = temp, y = fvfm), color = 'goldenrod', show.legend = FALSE) +
+  geom_ribbon(data = CBASS_1_preddata, aes(x = temp, ymin=Lower, ymax=Upper), color = 'goldenrod', linetype=2, alpha = 0.2) +
+  geom_vline(xintercept = 35.28690, linetype="solid", color = "goldenrod", size=0.7)+
+  
+  geom_line(data = CBASS_2_preddata, aes(x = temp, y = fvfm), color = "goldenrod", lty =2, show.legend = FALSE) +
+  geom_ribbon(data = CBASS_2_preddata, aes(x = temp, ymin=Lower, ymax=Upper), color = "goldenrod", linetype=2, alpha = 0.2) +
+  geom_vline(xintercept = 35.847047, linetype= "solid", color = "goldenrod", size=0.7)+
+  
+  geom_line(data = CBASS_3_preddata, aes(x = temp, y = fvfm), color = "midnightblue", show.legend = FALSE) +
+  geom_ribbon(data = CBASS_3_preddata, aes(x = temp, ymin=Lower, ymax=Upper), color = "midnightblue", linetype=2, alpha = 0.2) +
+  geom_vline(xintercept = 33.94443, linetype="solid", color = "midnightblue", size=0.7)+
+  
+  geom_line(data = CBASS_4_preddata, aes(x = temp, y = fvfm), color = 'midnightblue', lty =2, show.legend = FALSE) +
+  geom_ribbon(data = CBASS_4_preddata, aes(x = temp, ymin=Lower, ymax=Upper), color = 'midnightblue', linetype=2, alpha = 0.2) +
+  geom_vline(xintercept = 35.720542, linetype="solid", color = "midnightblue", size=0.7)+
+  
+  scale_color_manual(values =c("goldenrod", "midnightblue")) +
+  ylab("") +
+  xlab("Temperature (°C)") +
+  theme_bw(10) #+facet_wrap(~ genotype, ncol = 3)
+
+CBASS_DRC_plot3
+
+
+CBASS_DRC_plot = CBASS_DRC_plot + theme(legend.position = "none")
+CBASS_DRC_plot2 = CBASS_DRC_plot2 + theme(legend.position = "none")
+
+plot_grid(CBASS_DRC_plot, CBASS_DRC_plot2, legend, labels = c("AL", "LL"), nrow =1, rel_widths = c(3.4,3.4,1))
+
+
+var.test(data$FvFm, data2$FvFm)
+kruskal.test(data$FvFm, data2$FvFm)
+
+```
+
+
+#Genotypic and inter-assay differences
+
+```{r}
+dataCBASS <- data_raw[data_raw$day=="CBASS",]
+datagen <- data_raw[data_raw$day=="CBASS",]
+
+# Create jitter/boxplots with facets for each genotype
+data3$temperature <- as.factor(data3$temperature)
+
+ggplot(data3, aes(x = temperature, y = FvFm, fill = Run)) +
+  geom_boxplot() +
+  scale_fill_manual(values =c("yellow2", "springgreen3", "steelblue4", "darkorchid4"))+ theme_bw(10)+
+  labs(x = "Temperature (°C)", y = "Fv/Fm") +
+  facet_wrap(~ genotype, ncol = 3)
+#  --> not enough statistical power to achieve convergence
+
+# Create boxplots for each genotype in AL
+data$genotype <- as.factor(data$genotype)
+genbox1 <- ggplot(data, aes(x = data$genotype, y = data$FvFm, fill = genotype)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.2, alpha = 0.5) +
+  scale_fill_viridis_d()+ theme_bw(10)+
+  labs(x = "Genotype", y = "Fv/Fm") + theme(legend.position = "none") + ylim(0.0,0.8) + geom_signif(comparisons = list(c("19", "P1R2")), map_signif_level = TRUE, y_position = c(0.73), annotations = c("na"))
+genbox1
+# Create boxplots for each genotype in LL
+
+genbox2 <- ggplot(data2, aes(x = data2$genotype, y = data2$FvFm, fill = genotype)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.2, alpha = 0.5) +
+  scale_fill_viridis_d()+ theme_bw(10)+
+  labs(x = "Genotype", y = "") + theme(legend.position = "none") + ylim(0.0,0.8) + geom_signif(comparisons = list(c("19", "P1R2")), map_signif_level = TRUE, y_position = c(0.73), annotations = c("na"))
+genbox2
+
+# Create overall boxplots per genotype for VL run
+
+genbox3 <- ggplot(dataL, aes(x = dataL$genotype, y = dataL$FvFm, fill = genotype)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.2, alpha = 0.5)+
+  scale_fill_viridis_d()+ theme_bw(10)+
+  labs(x = "Genotype", y = "") + theme(legend.position = "none") + ylim(0.0,0.8) + geom_signif(comparisons = list(c("19", "P1R2")), map_signif_level = TRUE, y_position = c(0.73), annotations = c("na"))
+genbox3
+
+plot_grid(genbox1, genbox2, genbox3, labels =c("A","B", "C"))
+
+
+#Now wrap it up for each CBASS assay
+datagen <- data_raw[data_raw$day=="CBASS",]
+genbox <- ggplot(datagen, aes(x = datagen$genotype, y = datagen$FvFm, fill = genotype)) +
+  geom_boxplot() +
+  #geom_jitter(width = 0.2, alpha = 0.3) +
+  scale_fill_viridis_d()+ theme_bw(10)+
+  labs(x = "Genotype", y = "Fv/Fm") + theme(legend.position = "none") + ylim(0.0,0.8) + geom_signif(comparisons = list(c("19", "P1R2")), map_signif_level = TRUE, y_position = c(0.73), annotations = c("na")) + facet_wrap(~ run, ncol = 3)
+genbox
+
+
+###Stats
+
+#AL (no differences, same for LL)
+
+
+mylmAL <- lm(FvFm ~ genotype, data = data)
+shapiro.test(mylmAL$residuals)
+plot(mylmAL)
+anova(mylmAL)
+summary(mylmAL)
+kruskal.test(FvFm ~ genotype, data = data2)
+
+
+#AL & LL
+
+mylm <- lm(FvFm ~ genotype, data = data3)
+shapiro.test(mylm$residuals)
+plot(mylm)
+anova(mylm)
+summary(mylm)
+
+mylm2 <- lm(FvFm ~ genotype * temperature, data = data3)
+#plot(mylm2)
+#shapiro.test(mylm2$residuals)
+#anova(mylm2)
+#summary(mylm2)
+
+#VL
+mylm3 <- lm(FvFm ~ genotype * light, data = dataL)
+#shapiro.test(mylm3$residuals)
+#plot(mylm3)
+#anova(mylm3)
+#summary(mylm3)
+
+```
+
+
+#Mixed models
+
+*https://m-clark.github.io/mixed-models-with-R/random_intercepts.html*
+*https://ourcodingclub.github.io/tutorials/mixed-models/#ranslopes* cool one for slopes
+```{r}
+#####___Choose best models____####
+"https://rpubs.com/EmilOWK/BMA_examples"
+"https://khrc.ucsf.edu/bayesian-model-averaging-bma-variable-selection"
+library(lme4)
+library(lmerTest)
+
+data_mixed <- subset(data_raw, day == "CBASS")
+hist(data_mixed$FvFm)
+
+#Normalize variables
+data_mixed$light2 <- scale(data_mixed$light, center = TRUE, scale = TRUE)
+data_mixed$temperature2 <- scale(data_mixed$temperature, center = TRUE, scale = TRUE)
+
+#preliminary plot to visualize data
+(prelim_plot <- ggplot(data_mixed, aes(x = data_mixed$light2, y = data_mixed$FvFm)) +
+  geom_point() +
+  geom_smooth(method = "lm"))
+basic.lm2 <- lm(data_mixed$FvFm ~ data_mixed$light2)
+plot(basic.lm2)
+
+#Random intercept model: AIC = -693.7 avec 1|genotype
+data_mixed$Treatment = factor(data_mixed$Treatment)
+
+fvfm_mixed = lmer(FvFm ~ temperature2 + light2 + (1|tank/run/Treatment), data = data_mixed)
+
+
+#fvfm_mixed = lmer(FvFm ~ temperature2 + light2 + (1|Treatment/genotype), data = data_mixed)
+
+#fvfm_mixed = lmer(FvFm ~ temperature2 * light2 + (1|genotype), data = data_mixed, subset= Treatment=="Shade")
+
+#fvfm_mixed = lmer(FvFm ~ temperature2 * light2 + (1|genotype), data = data_mixed, subset= Treatment=="Control")
+
+plot(fvfm_mixed)
+qqnorm(resid(fvfm_mixed))
+qqline(resid(fvfm_mixed))
+summary(fvfm_mixed)
+anova(fvfm_mixed)
+extractAIC(fvfm_mixed)
+
+
+#confidence interval
+
+confint(fvfm_mixed)
+## estimates of random effects
+
+ranef(fvfm_mixed)
+coef(fvfm_mixed)
+
+#Random slope model AIC = -691.9148 - not so applicable here
+
+#fvfm_ranslope = lmer(FvFm ~ light2 + temperature2 + (1 + light2 |tank/run/Treatment) , data = data_mixed)
+
+
+#Plot the Mixed model
+
+(mm_plot <- ggplot(data_mixed, aes(x = tank, y = FvFm, colour = Treatment)) +
+      facet_wrap(~run, nrow=1) +   # a panel for each mountain range
+      geom_point(alpha = 0.5) +
+      theme_half_open(10) +
+      geom_line(data = cbind(data_mixed, pred = predict(fvfm_mixed)), lwd = 0.8, aes(y = pred), size = 1) +  # adding predicted line from mixed model 
+      theme(legend.position = "none",
+            panel.spacing = unit(2, "lines"))  # adding space between panels 
+  + scale_color_manual(values = c("goldenrod", "midnightblue"))
+)
+
+#Look at effect ranges
+library(merTools)
+predictInterval(fvfm_mixed)   # for various model predictions, possibly with new data
+
+REsim(fvfm_mixed)             # mean, median and sd of the random effect estimates
+
+plotREsim(REsim(fvfm_mixed)) # plot the interval estimates
+predict(fvfm_mixed, re.form=NA) %>% head()
+predict_with_re = predict(fvfm_mixed)
+plot(predict_with_re)
+
+```
+
+
+#Tank 4 comparison
+
+```{r}
+library(ggpubr)
+datatank4 <- data_raw[data_raw$day=="CBASS" & data_raw$tank =="4",]
+
+tank4 <- ggplot(datatank4, aes(x = run, y = FvFm)) + geom_boxplot() + scale_fill_manual(values = "darkgrey") + theme_cowplot(12) +ylab("Fv/Fm in tank 4") + xlab("") +ylim(0,0.7)
+tank4
+
+lm_tank <- lm(FvFm ~ run , data = datatank4)
+plot(lm_tank)
+anova(lm_tank)
+summary(lm_tank)
+shapiro.test(lm_tank$residuals)
+kruskal.test(FvFm ~ run , data = datatank4)
+
+datatank_noAL <- data_raw[data_raw$day=="CBASS" & data_raw$tank =="4" & data_raw$run !="AL",]
+lm_tank2 <- lm(FvFm ~ run , data = datatank_noAL)
+shapiro.test(lm_tank2$residuals)
+anova(lm_tank2)
+summary(lm_tank2)
+```
+
+
+#Bleaching pictures
+
+```{r}
+library(png)
+library(grid)
+setwd('E:/PhD_Organized/Science/1. Physiology and CBASS/3. CBASS/3. Database_CBASS_pictures/Post-bleaching')
+a0 <- readPNG("HL_T4.png")
+a1 <- rasterGrob(a0, interpolate=TRUE)
+b0 <- readPNG("LL_T4.png")
+b1 <- rasterGrob(b0, interpolate=TRUE)
+c0 <- readPNG("VL_T4.png")
+c1 <- rasterGrob(c0, interpolate=TRUE)
+plot_grid(a1,b1,c1)
+
+```
+
+
+#Final figure (need to merge both)
+```{r}
+
+plot_grid(CBASS_DRC_plot, CBASS_DRC_plot2, CBASS_DRC_plotL, genbox1, genbox2, genbox3, a1, b1, c1, nrow =3, rel_widths = c(1,1,1), rel_heights = c(1.5,1.3,1))
+
+plot_grid(genbox, mm_plot, nrow =2, labels = c("", ""), label_size = 15, label_y = 1, rel_heights = c(1.2,1))
+
+```
+

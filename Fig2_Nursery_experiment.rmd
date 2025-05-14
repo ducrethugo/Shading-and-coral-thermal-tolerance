@@ -1,0 +1,159 @@
+---
+title: "HOLOMICS_Physiology_experiments"
+author: "Hugo"
+date: '2022-06-14'
+output: 
+  html_document: 
+    fig_height: 7
+editor_options: 
+  chunk_output_type: console
+---
+
+Physiology code chunks of the **HOLOMICS** project.
+
+#Installing Packages
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(entropart)
+library(vegan)
+library(dplyr)
+library(SPECIES)
+library(deSolve)
+library(ggplot2)
+library(ggpubr)
+library(RColorBrewer)
+library(cowplot)
+library(FactoMineR)
+library(factoextra)
+library(ade4)
+library(gclus)
+library(ape)
+library(missMDA)
+#library(wesanderson)
+
+setwd("E:/PhD_Organized/I. Science/B. Physiology and CBASS/1. Physiology")
+
+
+```
+
+
+# ΔF/Fm' time-series
+
+```{r setup, include=FALSE}
+
+#Open data
+data_all_raw<-read.table("pam_all.txt",header=TRUE,sep = "", fill = TRUE)
+#select first week data
+data_all <- subset(data_all_raw, sampling_day != "8" & sampling_day != "9")
+head(data_all)
+fvfm <- as.numeric(data_all$FvFm)
+day <- data_all$sampling_day
+day <- as.numeric(day)
+
+#ANOVAs
+treatment <- data_all$Treatment
+lm <- lm(fvfm ~ Treatment, data=data_all)
+plot(lm)
+shapiro.test(lm$residuals)
+anova(lm)
+
+
+# Difference between groups before the application of shade clothes (ie before t0)
+
+data_day0 <- subset(data_all_raw, sampling_day == "0")
+
+fvfm0 <- ggplot(data_day0, aes(y=as.numeric(as.character(data_day0$FvFm)), x = Treatment, fill = Treatment)) + geom_boxplot() + xlab("") + ylab("") +theme_cowplot(8) + ylim(0,0.9) + scale_fill_manual(values = c("goldenrod", "midnightblue"))
+fvfm0
+lm_fvfm0 <- lm(as.numeric(as.character(FvFm)) ~ Treatment, data=data_day0)
+plot(lm_fvfm0)
+shapiro.test(lm_fvfm0$residuals)
+summary(lm_fvfm0)
+
+
+##time-series (Fig. 2A)
+
+a <- ggplot(data_all, aes(y=fvfm, x = day, colour = Treatment)) + geom_point(alpha = 0.5, size = 0.8) + geom_smooth() + xlab("Sampling day") + ylab("Effective quantum yield (ΔF/Fm')") +theme_cowplot(8) + scale_color_manual(values = c("goldenrod", "midnightblue"))
+a
+
+# Avoid displaying duplicated legend in next graphs
+a = a + theme(legend.position="none")
+
+```
+
+
+#Symbiont Density
+
+```{r}
+
+#open file
+dataok<-read.table("symbiont.txt",header=TRUE,sep = "", fill = TRUE)
+head(dataok)
+
+#variables
+
+symbiont <- dataok$symb_density
+symb <- as.numeric(as.character(symbiont))
+symb
+rack <- dataok$rack
+pam <- as.numeric(as.character(dataok$FvFm_j7))
+Treatment <- dataok$treatment
+
+# Symbiont count ~ treatment (Fig. 2B)
+
+gg <- ggplot(dataok, aes(x = dataok$treatment, y=symb, color = dataok$treatment)) + geom_line() +
+     stat_summary(fun.y = "mean", geom = "point", size = 3) + xlab("") + ylab("Symbiont density (10^6 cells/cm²)  ") + theme_cowplot(8) + ylim(0,7)+ scale_color_manual(values = c("goldenrod", "midnightblue" )) + geom_signif(comparisons = list(c("control", "shade")), map_signif_level = TRUE, y_position = c(5), annotations = c("***"), col = "black")
+gg
+
+#ANOVAs
+lm0 <- lm(symb ~ dataok$treatment, data = dataok)
+plot(lm0)
+shapiro.test(lm0$residuals)
+anova(lm0)
+
+legend <- get_legend(gg)
+gg = gg + theme(legend.position="none")
+
+```
+
+
+#Growth rate
+
+```{r}
+#open file
+data1<-read.table("bweight.txt",header=TRUE,sep = "", fill = TRUE)
+na.omit(data1)
+
+#Variables
+rate <- data1$growth_rate_...
+rate.n <- as.numeric(as.character(rate))
+rate.n
+Treatment <- data1$treatment
+
+# Growth rate ~ treatment 
+lm3 <- lm(rate.n ~ data1$treatment, data=data1)
+plot(lm3)
+anova(lm3)
+shapiro.test(lm3$residuals)
+summary(lm3)
+
+#Growth rate ~ buoyant weight at t0 (Fig. 2C)
+gbw <- ggplot(data1, aes(y = log(rate.n), x = log(data1$weight1), colour = Treatment)) + geom_point(alpha = 0.5, size = 0.8) + scale_fill_brewer(palette = "Set1") +  xlab("Log weight at t0 (g)") + ylab("Log growth rate (%)") + theme_cowplot(8) + geom_smooth(method = "lm", se = TRUE, lwd = 0.8) + scale_color_manual(values = c("goldenrod", "midnightblue")) 
+gbw
+
+
+lm4 <- lm(log(rate.n) ~ log(data1$weight1), data = data1)
+plot(lm4)
+shapiro.test(lm4$residuals)
+anova (lm4)
+summary(lm4)
+
+gbw = gbw + theme(legend.position="none")
+
+#Figure 2 A, B & C
+
+plot_grid(a,gg, gbw, nrow = 1, rel_widths = c(2,1,2), labels = c("A","B","C"), label_y = 0.97)
+#plot_grid(a,gg,gbw, legend, ncol = 3, rel_widths = c(1.5,1,1.5))
+
+```
